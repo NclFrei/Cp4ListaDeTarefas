@@ -1,91 +1,122 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Button, FlatList, StyleSheet, Alert, TouchableOpacity } from 'react-native';
-import { db, auth } from '../src/firebase';
-import { collection, addDoc, onSnapshot, query, where, doc, updateDoc, deleteDoc } from 'firebase/firestore';
-import { useRouter } from 'expo-router';
+import { View, Text, TextInput, TouchableOpacity, StyleSheet, Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useRouter, Link } from 'expo-router';
+import { auth } from '../src/firebase';
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
+import { useTranslation } from 'react-i18next';
 
-export default function HomeScreen() {
-  const [tarefa, setTarefa] = useState('');
-  const [listaTarefas, setListaTarefas] = useState([]);
+export default function LoginScreen() {
+  const [email, setEmail] = useState('');
+  const [senha, setSenha] = useState('');
   const router = useRouter();
-  const usuario = auth.currentUser;
+  const { t, i18n } = useTranslation();
 
-  // Buscar tarefas em tempo real para o usuário logado
-  useEffect(() => {
-    if (!usuario) return;
-    const q = query(collection(db, 'tarefas'), where('uid', '==', usuario.uid));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const tarefas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setListaTarefas(tarefas);
-    });
-
-    return () => unsubscribe();
-  }, [usuario]);
-
-  // Adicionar tarefa
-  const adicionarTarefa = async () => {
-    if (!tarefa.trim()) return;
+  // Verifica se já existe usuário logado
+  const verificarUsuarioLogado = async () => {
     try {
-      await addDoc(collection(db, 'tarefas'), {
-        uid: usuario.uid,
-        nome: tarefa,
-        concluida: false,
-      });
-      setTarefa('');
+      const usuarioSalvo = await AsyncStorage.getItem('@user');
+      if (usuarioSalvo) {
+        router.push('/HomeScreen');
+      }
     } catch (error) {
-      Alert.alert('Erro', 'Não foi possível adicionar a tarefa.');
+      console.log('Erro ao verificar login', error);
     }
   };
 
-  // Marcar tarefa como concluída
-  const toggleTarefa = async (id, concluida) => {
-    const docRef = doc(db, 'tarefas', id);
-    await updateDoc(docRef, { concluida: !concluida });
+  useEffect(() => {
+    verificarUsuarioLogado();
+  }, []);
+
+  const handleLogin = () => {
+    if (!email || !senha) {
+      Alert.alert('Atenção', 'Preencha todos os campos!');
+      return;
+    }
+
+    signInWithEmailAndPassword(auth, email, senha)
+      .then(async (userCredential) => {
+        const user = userCredential.user;
+        await AsyncStorage.setItem('@user', JSON.stringify(user));
+        router.push('/HomeScreen');
+      })
+      .catch((error) => {
+        console.log('Erro:', error.message);
+        Alert.alert('Erro', 'Email ou senha incorretos');
+      });
   };
 
-  // Deletar tarefa
-  const deletarTarefa = async (id) => {
-    const docRef = doc(db, 'tarefas', id);
-    await deleteDoc(docRef);
+  const esqueceuSenha = () => {
+    if (!email) {
+      Alert.alert('Atenção', 'Digite seu e-mail para recuperar a senha');
+      return;
+    }
+    sendPasswordResetEmail(auth, email)
+      .then(() => Alert.alert('Sucesso', 'E-mail de recuperação enviado'))
+      .catch((error) => {
+        console.log('Erro:', error.message);
+        Alert.alert('Erro', 'Não foi possível enviar o e-mail de recuperação');
+      });
   };
+
+  const mudarIdioma = (lang: string) => i18n.changeLanguage(lang);
 
   return (
     <View style={styles.container}>
-      <Text style={styles.titulo}>Minhas Tarefas</Text>
+      <Text style={styles.titulo}>{t('login') || 'Login'}</Text>
 
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Digite sua tarefa"
-          value={tarefa}
-          onChangeText={setTarefa}
-        />
-        <Button title="Adicionar" onPress={adicionarTarefa} />
+      <TextInput
+        style={styles.input}
+        placeholder="E-mail"
+        placeholderTextColor="#888"
+        keyboardType="email-address"
+        autoCapitalize="none"
+        value={email}
+        onChangeText={setEmail}
+      />
+
+      <TextInput
+        style={styles.input}
+        placeholder={t('password') || 'Senha'}
+        placeholderTextColor="#888"
+        secureTextEntry
+        value={senha}
+        onChangeText={setSenha}
+      />
+
+      <TouchableOpacity style={styles.botao} onPress={handleLogin}>
+        <Text style={styles.textoBotao}>{t('login') || 'Login'}</Text>
+      </TouchableOpacity>
+
+      <View style={styles.idiomas}>
+        <TouchableOpacity onPress={() => mudarIdioma('pt')}>
+          <Text>PT</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => mudarIdioma('en')}>
+          <Text>EN</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => mudarIdioma('es')}>
+          <Text>ES</Text>
+        </TouchableOpacity>
       </View>
 
-      <FlatList
-        data={listaTarefas}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => (
-          <View style={styles.item}>
-            <TouchableOpacity onPress={() => toggleTarefa(item.id, item.concluida)}>
-              <Text style={[styles.textoItem, item.concluida && { textDecorationLine: 'line-through' }]}>
-                {item.nome}
-              </Text>
-            </TouchableOpacity>
-            <Button title="Excluir" color="red" onPress={() => deletarTarefa(item.id)} />
-          </View>
-        )}
-      />
+      <Link href="/CadastrarScreen" style={styles.link}>
+        {t('register') || 'Cadastrar'}
+      </Link>
+
+      <Text style={styles.link} onPress={esqueceuSenha}>
+        {t('forgotPassword') || 'Esqueceu a senha?'}
+      </Text>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20 },
-  titulo: { fontSize: 28, fontWeight: 'bold', marginBottom: 20 },
-  inputContainer: { flexDirection: 'row', marginBottom: 20 },
-  input: { flex: 1, borderWidth: 1, borderColor: '#333', borderRadius: 8, paddingHorizontal: 10 },
-  item: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10 },
-  textoItem: { fontSize: 16 },
+  container: { flex: 1, justifyContent: 'center', padding: 20 },
+  titulo: { fontSize: 28, fontWeight: 'bold', marginBottom: 30, textAlign: 'center' },
+  input: { borderWidth: 1, borderColor: '#333', borderRadius: 10, padding: 15, marginBottom: 15, fontSize: 16 },
+  botao: { backgroundColor: '#00B37E', padding: 15, borderRadius: 10, alignItems: 'center', marginBottom: 15 },
+  textoBotao: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  idiomas: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 20 },
+  link: { textAlign: 'center', marginTop: 10, color: '#00B37E' },
 });
